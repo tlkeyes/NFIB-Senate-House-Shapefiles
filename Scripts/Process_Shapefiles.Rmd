@@ -1,0 +1,158 @@
+---
+title: "Process Shapefiles"
+author: "lkeyes"
+date: "2023-04-03"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+# IMPORT FUNCTIONS
+```{r}
+library(rvest)
+library(dplyr)
+
+### PROJECT DIRECTORY
+proj_dir <- "C:/R Working Directory/NFIB_Senate_House_Shapefiles"
+
+### IMPORT HELPER FUNCTIONS
+source(paste0(proj_dir,"/Scripts/helper_functions.R"))
+```
+
+# IMPORT FIPS DATA
+```{r}
+fips_data <- tidycensus::fips_codes %>%
+  distinct(state, state_code, state_name) %>%
+  mutate(STATE = state,
+         STATECODE = state_code,
+         STATENAME = state_name) %>%
+  select(STATE, STATECODE, STATENAME)
+```
+
+# SENATE SHAPEFILES
+
+## Gather the filenames from the Census <b>Upper House</b>(<i>Senate</i>) website.
+```{r}
+senate_url <- "https://www2.census.gov/geo/tiger/TIGER_RD18/LAYER/SLDU/"
+
+file_names <- getFileNames(url = senate_url)
+```
+
+## Download Zip Files
+```{r}
+senate_dest <- paste0(proj_dir,"/Downloads/Senate/")
+
+downloadZips(url = senate_url,
+             file_destination = senate_dest,
+             file_list = file_names)
+```
+
+## Extract Shapefiles from Zip
+```{r}
+shape_dest <- paste0(proj_dir,"/Shapefiles/Senate")
+
+extractFiles(file_destination = senate_dest,
+             extract_destination = shape_dest,
+             file_list = file_names)
+```
+
+# Combine Senate Shapes and Create New Shapefile
+```{r}
+shp_files <- list.files(path = shape_dest,
+                        pattern = "\\.shp$",
+                        full.names = TRUE)
+
+
+shapefile_list <- lapply(shp_files, sf::st_read)
+
+all_shp <- do.call(sf:::rbind.sf, shapefile_list)
+
+all_shp_mod <- all_shp %>%
+  left_join(fips_data, by = c("STATEFP" = "STATECODE")) %>%
+  mutate(LAT = INTPTLAT,
+         LON = INTPTLON) %>%
+  select(STATEFP,
+         STATENAME,
+         SLDUST,
+         GEOID,
+         NAMELSAD,
+         LSAD,
+         LAT,
+         LON,
+         geometry)
+
+### CREATE SHP FILE
+sf::st_write(all_shp_mod, paste0(proj_dir,"/Outputs/Senate_shapefile.shp"))
+
+### CREATE GEOJSON FILE
+sf::st_write(all_shp_mod, paste0(proj_dir,"/Outputs/Senate_shapefile.geojson"), driver = "GeoJSON")
+```
+
+
+# HOUSE SHAPEFILES
+
+## Gather the filenames from the Census <b>Lower House</b>(<i>House</i>) website.
+```{r}
+house_url <- "https://www2.census.gov/geo/tiger/TIGER_RD18/LAYER/SLDL/"
+
+file_names <- getFileNames(url = house_url)
+```
+
+## Download Zip Files
+```{r}
+house_dest <- paste0(proj_dir,"/Downloads/House/")
+
+downloadZips(url = house_url,
+             file_destination = house_dest,
+             file_list = file_names)
+```
+
+## Extract Shapefiles from Zip
+```{r}
+shape_dest <- paste0(proj_dir,"/Shapefiles/House")
+
+extractFiles(file_destination = house_dest,
+             extract_destination = shape_dest,
+             file_list = c(file_names, "tl_rd22_31_sldu.zip")) # THIS IS TO ADD NEBRASKA, REPLACE 22 WITH 23 NEXT YEAR
+```
+
+# Combine House Shapes and Create New Shapefile
+```{r}
+shp_files <- list.files(path = shape_dest,
+                        pattern = "\\.shp$",
+                        full.names = TRUE)
+
+
+shapefile_list <- lapply(shp_files, sf::st_read)
+
+#THIS IS TO MAKE FILENAMES FOR NEBRASKA (31) THE SAME AS ALL OTHER FILE NAMES
+names(shapefile_list[[27]]) <- names(shapefile_list[[26]])
+
+all_shp <- do.call(sf:::rbind.sf, shapefile_list)
+
+all_shp_mod <- all_shp %>%
+  left_join(fips_data, by = c("STATEFP" = "STATECODE")) %>%
+  mutate(LAT = INTPTLAT,
+         LON = INTPTLON) %>%
+  select(STATEFP,
+         STATENAME,
+         SLDLST,
+         GEOID,
+         NAMELSAD,
+         LSAD,
+         LAT,
+         LON,
+         geometry)
+
+### CREATE SHP FILE
+sf::st_write(all_shp_mod, paste0(proj_dir,"/Outputs/House_shapefile.shp"),
+             append = FALSE)
+
+### CREATE GEOJSON FILE
+sf::st_write(all_shp_mod, paste0(proj_dir,"/Outputs/House_shapefile.geojson"), driver = "GeoJSON",
+             append = FALSE)
+```
